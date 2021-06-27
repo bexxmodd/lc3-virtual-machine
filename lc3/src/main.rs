@@ -21,27 +21,30 @@ fn main() {
 
     for i in cli.args.iter() {
         if !read_image(i) {
-            println!("failed to load image: {}", cli.args[i]);
+            println!("failed to load image: {}", i);
             process::exit(1);
         }
     }
 
+    let mut memory = Memory::new();
+    let mut registers = Regs::new();
+
     loop {
         // Fetch
-        let instr = mem_read(reg[RPC]) as u16;
+        let instr = memory.mem_read(registers.reg[Register::RPC as usize]) as u16;
 
         // get the opcode
         let op = instr >> 12;
 
         match op {
-            OPAdd => add_dir(instr),
+            OPAdd => memory.add(instr, &mut registers),
             OPAnd => // AND,
             OPNot => // NOT,
             OPBr => // BR,
             OPJmp => // JMP,
             OPJsr => // JSR,
             OPLd => // LOAD
-            OPLDi => // another load,
+            OPLdi => memory.ldi(instr, &mut registers),
             OPLdr => // yet another load
             OPLea => // i dont remember
             OPSt => // Store

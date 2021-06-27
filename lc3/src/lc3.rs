@@ -85,6 +85,11 @@ pub fn check_key() -> bool {
     false
 }
 
+pub fn get_char() -> u16 {
+    // TODO
+    1
+}
+
 pub struct Regs {
     reg: Vec<u16>,
 }
@@ -92,8 +97,26 @@ pub struct Regs {
 impl Regs {
     pub fn new() -> Self {
         Regs {
-            reg: Vec::with_capacity(Register::RCount as usize),
+            reg: vec![0; Register::RCount as usize],
         }
+    }
+
+    pub fn update_flags(&mut self, r: u16) {
+        if self.reg[r as usize] == 0 {
+            self.reg[Register::RCond as usize] = Flag::BRz as u16;
+        } else if (self.reg[r as usize] >> 15) > 0 {
+            self.reg[Register::RCond as usize] = Flag::BRn as u16;
+        } else {
+            self.reg[Register::RCond as usize] = Flag::BRp as u16;
+        }
+    }
+
+    pub fn update_reg(&mut self, val: u16, index: u16) {
+        self.reg[index as usize] = val;
+    }
+
+    pub fn get(&self, index: u16) -> u16 {
+        self.reg[index as usize]
     }
 }
 
@@ -114,51 +137,106 @@ pub fn swap_16bits(x: u16) -> u16 {
     x << 8 | x >> 8
 }
 
-pub fn update_flags(r: u16) {
-    unsafe {
-        if REG[r as usize] == 0 {
-            REG[Register::RCond as usize] = Flag::BRz as u16;
-        } else if (REG[r as usize] >> 15) > 0 {
-            REG[Register::RCond as usize] = Flag::BRn as u16;
+pub trait Directives {
+    fn add(&self, instr: u16, reg: &mut Regs);
+    fn ldi(&mut self, instr: u16, registers: &mut Regs);
+    fn and(&self, instr: u16, registers: &mut Regs);
+    fn not(instr: u16);
+    fn branch(instr: u16);
+    fn jmp(instr: u16);
+    fn jsr(instr: u16);
+    fn ld(instr: u16);
+    fn ldr(instr: u16);
+    fn lea(instr: u16);
+    fn st(instr: u16);
+    fn sti(instr: u16);
+}
+
+impl Directives for Memory {
+    fn add(&self, instr: u16, registers: &mut Regs) {
+        //destination register (DR) 
+        let r0 = (instr >> 9) & 0x7;
+
+        // first operand
+        let r1 = (instr >> 6) & 0x7;
+
+        // where we are in immediate mode
+        let imm_flag = (instr >> 5) & 0x1;
+
+        if imm_flag == 1 {
+            let imm5: u16 = sign_extend(instr & 0x1F, 5);
+            registers.update_reg(r0, registers.get(r1) + imm5);
         } else {
-            REG[Register::RCond as usize] = Flag::BRp as u16;
+            let r2 = instr & 0x7;
+            registers.update_reg(r0, registers.get(r1) + registers.get(r2));
         }
-    }
-}
-
-pub fn add_dir(instr: u16) {
-    //destination register (DR) 
-    let r0 = ((instr >> 9) & 0x7) as usize;
-
-    // first operand
-    let r1 = ((instr >> 6) & 0x7) as usize;
-
-    // where we are in immediate mode
-    let imm_flag = (instr >> 5) & 0x1;
-
-    if imm_flag == 1 {
-        let imm5: u16 = sign_extend(instr & 0x1F, 5);
-        unsafe { REG[r0] = REG[r1] + imm5; }
-    } else {
-        let r2 = (instr & 0x7) as usize;
-        unsafe { REG[r0] = REG[r0] + REG[r2]; }
+        registers.update_flags(r0 as u16);
     }
 
-    update_flags(r0 as u16);
-}
+    fn ldi(&mut self, instr: u16, registers: &mut Regs) {
+        // destination register (DR)
+        let r0 = (instr >> 9) & 0x7;
+        
+        // PCoffset 9
+        let pc_offset = sign_extend(instr & 0x1FF, 9);
 
-pub fn ldi_dir(instr: u16) {
-    // destination register (DR)
-    let r0 = (instr >> 9) & 0x7;
-    
-    // PCoffset 9
-    let pc_offset = sign_extend(instr & 0x1FF, 9);
+        // add pc_offset to the current PC,
+        // look at that memory location to get the final address
+        registers.update_reg(r0,
+            self.mem_read(self.mem_read(
+                registers.reg[Register::RPC as usize] + pc_offset))
+        );
+        registers.update_flags(r0);
+    }
 
-    // add pc_offset to the current PC,
-    // look at that memory location to get the final address
-    unsafe {
-        REG[r0 as usize] = mem_read(
-            mem_read(reg[Register::RPC as usize] + pc_offset)
-        )
-    };
+    fn and(&self, instr: u16, registers: &mut Regs) {
+        let r0 = (instr >> 9) & 0x7;
+        let r1 = (instr >> 6) & 0x7;
+        let imm_flag = (instr >> 5) & 0x1;
+
+        if imm_flag == 1 {
+            let imm5 = sign_extend(instr & 0x1F, 5);
+            registers.update_reg(r0, registers.get(r1) & 0x7);
+        } else {
+            let r2 = instr & 0x7;
+            registers.update_reg(r0, registers.get(r1) & registers.get(r2)); 
+        }
+        registers.update_flags(r0);
+    }
+
+    fn not(instr: u16) {
+        todo!()
+    }
+
+    fn branch(instr: u16) {
+        todo!()
+    }
+
+    fn jmp(instr: u16) {
+        todo!()
+    }
+
+    fn jsr(instr: u16) {
+        todo!()
+    }
+
+    fn ld(instr: u16) {
+        todo!()
+    }
+
+    fn ldr(instr: u16) {
+        todo!()
+    }
+
+    fn lea(instr: u16) {
+        todo!()
+    }
+
+    fn st(instr: u16) {
+        todo!()
+    }
+
+    fn sti(instr: u16) {
+        todo!()
+    }
 }
