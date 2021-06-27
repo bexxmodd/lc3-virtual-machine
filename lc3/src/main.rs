@@ -4,13 +4,6 @@ use crate::lc3::*;
 
 use std::{env, process};
 
-static mut MEMORY: &'static [u16] = &[0; std::u16::MAX as usize];
-static mut REG: &'static [u16] = &[0; Register::RCount as usize];
-
-enum MemoryAddress {
-    PCStart = 0x30000,
-}
-
 struct Cli {
     args: Vec<String>,
 }
@@ -26,33 +19,40 @@ fn main() {
         process::exit(2);
     }
 
-    // loop {
-    //     // Fetch
-    //     let instr = mem_read(reg[RPC]) as u16;
+    for i in cli.args.iter() {
+        if !read_image(i) {
+            println!("failed to load image: {}", cli.args[i]);
+            process::exit(1);
+        }
+    }
 
-    //     // get the opcode
-    //     let op = instr >> 12;
+    loop {
+        // Fetch
+        let instr = mem_read(reg[RPC]) as u16;
 
-    //     match op {
-    //         OPAdd => // ADD,
-    //         OPAnd => // AND,
-    //         OPNot => // NOT,
-    //         OPBr => // BR,
-    //         OPJmp => // JMP,
-    //         OPJsr => // JSR,
-    //         OPLd => // LOAD
-    //         OPLDi => // another load,
-    //         OPLdr => // yet another load
-    //         OPLea => // i dont remember
-    //         OPSt => // Store
-    //         OPSti => // another store
-    //         OPStr => // jeez
-    //         OPTrap => // trap
-    //         OPRes => // not available
-    //         OPRti => // not available
-    //         _ => // Invalid OPCODE
-    //     }
+        // get the opcode
+        let op = instr >> 12;
 
-    //     // exit
-    // }
+        match op {
+            OPAdd => add_dir(instr),
+            OPAnd => // AND,
+            OPNot => // NOT,
+            OPBr => // BR,
+            OPJmp => // JMP,
+            OPJsr => // JSR,
+            OPLd => // LOAD
+            OPLDi => // another load,
+            OPLdr => // yet another load
+            OPLea => // i dont remember
+            OPSt => // Store
+            OPSti => // another store
+            OPStr => // jeez
+            OPTrap => // trap
+            OPRes => // not available
+            OPRti => // not available
+            _ => // Invalid OPCODE
+        }
+
+        // exit
+    }
 } 
