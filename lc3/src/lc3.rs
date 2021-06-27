@@ -9,7 +9,7 @@ pub enum Register {
     Rr7,
     RPC, // Program Counter
     RCond,
-    RCount = 10,
+    RCount,
 }
 
 // static mut REG: &'static [u16] = &[0; Register::RCount as usize];
@@ -64,11 +64,11 @@ impl Memory {
         }
     }
 
-    pub fn mem_write(&mut self, address: u16, val: u16) {
+    pub fn write(&mut self, address: u16, val: u16) {
         self.memory[address as usize] = val;
     }
 
-    pub fn mem_read(&self, address: u16) -> u16 {
+    pub fn read(&self, address: u16) -> u16 {
         if address == MemoryMappedRegisters::MrKbsr as u16 {
             if check_key() {
                 self.memory[MemoryMappedRegisters::MrKbsr as usize] = 1 << 15;
@@ -90,13 +90,13 @@ pub fn get_char() -> u16 {
     1
 }
 
-pub struct Regs {
+pub struct Registers {
     reg: Vec<u16>,
 }
 
-impl Regs {
+impl Registers {
     pub fn new() -> Self {
-        Regs {
+        Registers {
             reg: vec![0; Register::RCount as usize],
         }
     }
@@ -111,12 +111,16 @@ impl Regs {
         }
     }
 
-    pub fn update_reg(&mut self, val: u16, index: u16) {
+    pub fn update_reg(&mut self, index: u16, val: u16) {
         self.reg[index as usize] = val;
     }
 
     pub fn get(&self, index: u16) -> u16 {
         self.reg[index as usize]
+    }
+
+    pub fn increment_pc(&mut self, val: u16) {
+        self.reg[Register::RPC as usize] += val;
     }
 }
 
@@ -138,22 +142,23 @@ pub fn swap_16bits(x: u16) -> u16 {
 }
 
 pub trait Directives {
-    fn add(&self, instr: u16, reg: &mut Regs);
-    fn ldi(&mut self, instr: u16, registers: &mut Regs);
-    fn and(&self, instr: u16, registers: &mut Regs);
-    fn not(instr: u16);
-    fn branch(instr: u16);
-    fn jmp(instr: u16);
-    fn jsr(instr: u16);
-    fn ld(instr: u16);
-    fn ldr(instr: u16);
-    fn lea(instr: u16);
-    fn st(instr: u16);
-    fn sti(instr: u16);
+    fn add(&self, instr: u16);
+    fn ldi(&self, instr: u16, memory: &mut Memory);
+    fn and(&self, instr: u16);
+    fn not(&self, instr: u16);
+    fn branch(&self, instr: u16);
+    fn jmp(&self, instr: u16);
+    fn jsr(&self, instr: u16);
+    fn load(&self, instr: u16, memory: &Memory);
+    fn ldr(&self, instr: u16, memory: &Memory);
+    fn lea(&self, instr: u16);
+    fn store(&self, instr: u16, memory: &mut Memory);
+    fn sti(&self, instr: u16, memory: &mut Memory);
+    fn str(&self, instr: u16, memory: &mut Memory);
 }
 
-impl Directives for Memory {
-    fn add(&self, instr: u16, registers: &mut Regs) {
+impl Directives for Registers {
+    fn add(&self, instr: u16) {
         //destination register (DR) 
         let r0 = (instr >> 9) & 0x7;
 
@@ -165,15 +170,15 @@ impl Directives for Memory {
 
         if imm_flag == 1 {
             let imm5: u16 = sign_extend(instr & 0x1F, 5);
-            registers.update_reg(r0, registers.get(r1) + imm5);
+            self.update_reg(r0, self.get(r1) + imm5);
         } else {
             let r2 = instr & 0x7;
-            registers.update_reg(r0, registers.get(r1) + registers.get(r2));
+            self.update_reg(r0, self.get(r1) + self.get(r2));
         }
-        registers.update_flags(r0 as u16);
+        self.update_flags(r0 as u16);
     }
 
-    fn ldi(&mut self, instr: u16, registers: &mut Regs) {
+    fn ldi(&self, instr: u16, memory: &mut Memory) {
         // destination register (DR)
         let r0 = (instr >> 9) & 0x7;
         
@@ -182,61 +187,112 @@ impl Directives for Memory {
 
         // add pc_offset to the current PC,
         // look at that memory location to get the final address
-        registers.update_reg(r0,
-            self.mem_read(self.mem_read(
-                registers.reg[Register::RPC as usize] + pc_offset))
+        self.update_reg(r0,
+            memory.read(memory.read(
+                self.get(Register::RPC as u16) + pc_offset))
         );
-        registers.update_flags(r0);
+        self.update_flags(r0);
     }
 
-    fn and(&self, instr: u16, registers: &mut Regs) {
+    fn and(&self, instr: u16) {
         let r0 = (instr >> 9) & 0x7;
         let r1 = (instr >> 6) & 0x7;
         let imm_flag = (instr >> 5) & 0x1;
 
         if imm_flag == 1 {
             let imm5 = sign_extend(instr & 0x1F, 5);
-            registers.update_reg(r0, registers.get(r1) & 0x7);
+            self.update_reg(r0, self.get(r1) & 0x7);
         } else {
             let r2 = instr & 0x7;
-            registers.update_reg(r0, registers.get(r1) & registers.get(r2)); 
+            self.update_reg(r0, self.get(r1) & self.get(r2)); 
         }
-        registers.update_flags(r0);
+        self.update_flags(r0);
     }
 
-    fn not(instr: u16) {
-        todo!()
+    fn not(&self, instr: u16) {
+        let r0 = (instr >> 9) & 0x7;
+        let r1 = (instr >> 6) & 0x7;
+
+        self.update_reg(r1, !self.get(r1));
+        self.update_flags(r0);
     }
 
-    fn branch(instr: u16) {
-        todo!()
+    fn branch(&self, instr: u16) {
+        let pc_offset = sign_extend(instr & 0x1FF, 9);
+        let cond_flag = (instr >> 9) & 0x7;
+
+        if cond_flag & self.get(Register::RCond as u16) == 1 {
+            self.increment_pc(pc_offset);
+        }
     }
 
-    fn jmp(instr: u16) {
-        todo!()
+    fn jmp(&self, instr: u16) {
+        let r1 = (instr >> 6) & 0x7;
+        self.update_reg(Register::RPC as u16, r1);
     }
 
-    fn jsr(instr: u16) {
-        todo!()
+    fn jsr(&self, instr: u16) {
+        let long_flag = (instr >> 11) & 1;
+        self.update_reg(Register::Rr7 as u16, Register::RPC as u16);
+        if long_flag == 1 {
+            let long_pc_offset = sign_extend(instr & 0x7FF, 11);
+            self.increment_pc(long_pc_offset); // JSR
+        } else {
+            let r1 = (instr >> 6) & 0x7;
+            self.update_reg(Register::RPC as u16, r1);
+        }
     }
 
-    fn ld(instr: u16) {
-        todo!()
+    fn load(&self, instr: u16, memory: &Memory) {
+        let r0 = (instr >> 9) & 0x7;
+        let pc_offset = sign_extend(instr & 0x1FF, 9);
+        self.update_reg(r0, memory.read(
+            self.get(Register::RPC as u16) + pc_offset
+        ));
+        self.update_flags(r0);
     }
 
-    fn ldr(instr: u16) {
-        todo!()
+    fn ldr(&self, instr: u16, memory: &Memory) {
+        let r0 = (instr >> 9) & 0x7;
+        let r1 = (instr >> 6) & 0x7;
+        let offset = sign_extend(instr & 0x3F, 6);
+        self.update_reg(r0,
+            memory.read(self.get(r1) + offset)
+        );
+        self.update_flags(r0);
     }
 
-    fn lea(instr: u16) {
-        todo!()
+    fn lea(&self, instr: u16) {
+        let r0 = (instr >> 9) & 0x7;
+        let pc_offset = sign_extend(instr & 0x1FF, 9);
+        self.update_reg(r0,
+            self.get(Register::RPC as u16) + pc_offset);
+        self.update_flags(r0);
     }
 
-    fn st(instr: u16) {
-        todo!()
+    fn store(&self, instr: u16, memory: &mut Memory) {
+        let r0 = (instr >> 9) & 0x7;
+        let pc_offset = sign_extend(instr & 0x1FF, 9);
+        memory.write(
+            self.get(Register::RPC as u16) + pc_offset,
+            self.get(r0)
+        );
     }
 
-    fn sti(instr: u16) {
-        todo!()
+    fn sti(&self, instr: u16, memory: &mut Memory) {
+        let r0 = (instr >> 9) & 0x7;
+        let pc_offset = sign_extend(instr & 0x1FF, 9);
+        memory.write(
+            memory.read(self.get(Register::RPC as u16) + pc_offset),
+            self.get(r0)
+        );
+    }
+
+    fn str(&self, instr: u16, memory: &mut Memory) {
+        let r0 = (instr >> 9) & 0x7;
+        let r1 = (instr >> 6) & 0x7;
+        let offset = sign_extend(instr & 0x3F, 6);
+        memory.write(self.get(r1) + offset,
+                self.get(r0));
     }
 }
