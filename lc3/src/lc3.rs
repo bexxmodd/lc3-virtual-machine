@@ -1,3 +1,5 @@
+use std::fs::File;
+
 pub enum Register {
     Rr0 = 0,
     Rr1,
@@ -295,4 +297,23 @@ impl Directives for Registers {
         memory.write(self.get(r1) + offset,
                 self.get(r0));
     }
+}
+
+pub fn puts() {
+    todo!();
+}
+
+pub fn getc() {
+    todo!();
+}
+
+pub fn read_image_file(file: Vec<u8>) {
+    let max_read = u16::MAX;
+    
+}
+
+pub fn read_image(path: &str) -> Result<(), std::io::Error> {
+    let file = std::fs::read(path)?;
+    read_image_file(file);
+    Ok(())
 }
